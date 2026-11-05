@@ -1,0 +1,12 @@
+[package]
+name = "wgpu-learning"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0" # Error handeling
+winit = { version = "0.30", features = ["android-native-activity"] } # Fenster erstellen
+env_logger = "0.10" # Backend Logging
+log = "0.4" # Logging
+wgpu = "30.0" # WGPU
+pollster = "0.3" # leichtgewichtige async für die main Funktion
