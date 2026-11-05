@@ -132,9 +132,45 @@ impl State {
             }
         };
 
-        
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Render Encoder"),
+        });
+        // Extra Block damit encoder geropt wird
+        {
+            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.1,
+                            g: 0.5,
+                            b: 0.5,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
+        self.queue.present(output);
+
+        Ok(())
     }
 
+    pub fn update() {
+        
+    }
+    
     pub fn handle_key(&self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
         match (code, is_pressed) {
             (KeyCode::Escape, true) => event_loop.exit(),
@@ -165,9 +201,7 @@ impl App {
 impl ApplicationHandler<State> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = Window::default_attributes()
-            .with_title("wgpu Learning")
-            .with_inner_size(winit::dpi::PhysicalSize::new(800, 600))
-            .with_visible(true);
+            .with_title("DAS LÄUFT EINFACH AUF DER GPU WASS?");
         
         #[cfg(target_arch = "wasm32")]
         {
@@ -176,9 +210,7 @@ impl ApplicationHandler<State> for App {
         }
 
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
-        window.set_visible(true);
-        window.set_minimized(true);
-        window.focus_window();
+
         println!("Window created!");
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -210,8 +242,18 @@ impl ApplicationHandler<State> for App {
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) => {
+                state.resize(size.width, size.height);
+            }
             WindowEvent::RedrawRequested => {
-                state.render();
+                State::update(); // das hier ist denke ich falsch
+                match state.render() {
+                    Ok(_) => {},
+                    Err(e) => {
+                        log::error!("{e}");
+                        event_loop.exit();
+                    }
+                }
             }
             WindowEvent::KeyboardInput {
                 event: KeyEvent {
