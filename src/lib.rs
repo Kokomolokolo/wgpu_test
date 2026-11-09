@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use wgpu::{DeviceDescriptor, ExperimentalFeatures, InstanceDescriptor, RequestAdapterOptions, SurfaceConfiguration};
+use wgpu::{ColorTargetState, DeviceDescriptor, ExperimentalFeatures, Face::Back, InstanceDescriptor, PipelineLayoutDescriptor, RenderPipelineDescriptor, RequestAdapterOptions, SurfaceConfiguration};
 use winit::{
     application::ApplicationHandler, event::*, event_loop::{ActiveEventLoop, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::{Window, WindowId}
 };
@@ -18,6 +18,9 @@ pub struct State {
     config: wgpu::SurfaceConfiguration,
     is_surface_configed: bool,
     window: Arc<Window>, // Atomicallly Refrence Counted
+    clear_color: wgpu::Color,
+
+    render_pipeline: wgpu::RenderPipeline,
 }
 
 impl State {
@@ -81,6 +84,60 @@ impl State {
             color_space: wgpu::SurfaceColorSpace::Auto,
         };
 
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        });
+
+        let render_pipeline_layout = 
+            device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                immediate_size: 0,
+            });
+
+        let render_pipeline = device.create_render_pipeline( &RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"), // Im shader definiert
+                buffers: &[], // What type, im shader definiert
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState { // Nicht zwingend, deswegen some
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+
+            // Wie die vertecies interpretiert werden
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw, // Couter Clock wise
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let color = wgpu::Color::BLUE;
+
         Ok(
             Self {
                 surface,
@@ -89,6 +146,8 @@ impl State {
                 config,
                 is_surface_configed: false,
                 window,
+                clear_color: color,
+                render_pipeline,
             }
         )
     }
@@ -139,19 +198,14 @@ impl State {
         });
         // Extra Block damit encoder geropt wird
         {
-            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.5,
-                            b: 0.5,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(self.clear_color),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -160,6 +214,9 @@ impl State {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.draw(0..3, 0..1);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         self.queue.present(output);
@@ -169,6 +226,11 @@ impl State {
 
     pub fn update() {
         
+    }
+
+    fn handle_mouse_moved(&mut self, x: f64, y: f64) {
+        self.clear_color.r = x / self.config.width as f64;
+        self.clear_color.g = y / self.config.height as f64;
     }
     
     pub fn handle_key(&self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
@@ -215,8 +277,9 @@ impl ApplicationHandler<State> for App {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Nicht im web, pollster to await window creation
-            self.state = Some(pollster::block_on(State::new(window)).unwrap());        }
+            self.state = Some(pollster::block_on(State::new(window)).unwrap());        
         }
+    }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: State) {
         #[cfg(target_arch = "wasm32")]
@@ -254,6 +317,9 @@ impl ApplicationHandler<State> for App {
                         event_loop.exit();
                     }
                 }
+            }
+            WindowEvent::CursorMoved {position, .. } => {
+                state.handle_mouse_moved(position.x, position.y);
             }
             WindowEvent::KeyboardInput {
                 event: KeyEvent {
